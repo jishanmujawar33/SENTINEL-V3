@@ -13,7 +13,7 @@ let classifier = null;
  */
 export async function initBERT() {
   if (classifier) return classifier;
-  
+
   // We use a sentiment/classification model as a base for text authenticity signals
   // In a production app, this would be a custom-trained model for review deception.
   classifier = await pipeline("text-classification", "Xenova/distilbert-base-uncased-finetuned-sst-2-english");
@@ -28,14 +28,14 @@ export async function analyzeReview(text) {
   // 1. Run BERT Neural Classification
   const model = await initBERT();
   const [output] = await model(text);
-  
+
   // 2. Extract NLP features for signal breakdown
   const features = extractFeatures(text);
-  
+
   // 3. Hybrid Logic: Combine BERT confidence with comprehensive NLP signals
   // NOTE: BERT is a sentiment model (POSITIVE/NEGATIVE), NOT a fake-review model.
   // We must INVERT the naive mapping: excessively positive sentiment + weak specificity = FAKE.
-  
+
   // --- FAKE score: accumulates evidence of inauthenticity ---
   let rawFakeScore = 0;
   rawFakeScore += features.exclamationDensity * 0.6;       // Excessive punctuation
@@ -48,7 +48,7 @@ export async function analyzeReview(text) {
   rawFakeScore += (1 - features.temporalScore) * 0.3;      // No time references = fake
   rawFakeScore += (1 - features.lexicalDiversity) * 0.5;   // Low vocabulary = bot
   rawFakeScore += (1 - features.sentenceVariety) * 0.3;    // Uniform sentence length = template
-  
+
   // If BERT says POSITIVE with high confidence AND text has exclamation/superlative spam,
   // it's likely a fake over-enthusiastic review — boost fake score
   if (output.label === "POSITIVE" && output.score > 0.85) {
@@ -60,7 +60,7 @@ export async function analyzeReview(text) {
   if (output.label === "NEGATIVE") {
     rawFakeScore += features.repetitionScore * 0.3;
   }
-  
+
   // --- GENUINE score: accumulates evidence of authenticity ---
   let rawGenuineScore = 0;
   rawGenuineScore += features.specificityScore * 0.8;       // Numbers, measurements, tech specs
@@ -70,11 +70,11 @@ export async function analyzeReview(text) {
   rawGenuineScore += features.temporalScore * 0.5;          // "after 3 weeks", "since last month"
   rawGenuineScore += features.questionPresence * 0.3;       // Genuine reviewers ask questions
   rawGenuineScore += features.firstPersonPronouns * 0.4;    // Personal experience markers
-  
+
   // Balanced emotional polarity (not 100% positive or negative) is a genuine signal
   const polarityBalance = 1 - Math.abs(features.emotionalPolarity - 0.5) * 2;
   rawGenuineScore += polarityBalance * 0.5;
-  
+
   // If BERT says POSITIVE with moderate confidence and text has real specifics, it's genuine
   if (output.label === "POSITIVE" && features.specificityScore > 0.25 && features.lexicalDiversity > 0.5) {
     rawGenuineScore += output.score * 0.3;
@@ -124,7 +124,7 @@ export async function analyzeReview(text) {
   const maxIdx = probs.indexOf(Math.max(...probs));
   const verdict = classes[maxIdx];
   let confidence = probs[maxIdx];
-  
+
   // Boost confidence for clear-cut cases
   if (confidence > 75) confidence = Math.max(confidence, 92);
 
