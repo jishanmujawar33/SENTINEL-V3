@@ -5,10 +5,10 @@ import GlassCard from "../components/GlassCard";
 const mqItems = ["Review Forensics","Behavioral Signals","Sentiment Mapping","BERT Neural Engine","NLP Detection","Authenticity Scoring","Pattern Recognition","Neural Transformer"];
 
 const TEAM = [
-  { name: "Zeeshan", role: "Lead Developer", img: "/member1.jpg" },
-  { name: "Vibhavri", role: "AI Researcher", img: "/member2.jpg" },
-  { name: "Shubham", role: "Backend Engineer", img: "/member3.jpg" },
-  { name: "Tejaswini", role: "Product Designer", img: "/member4.jpg" },
+  { name: "Zeeshan", role: "Lead Developer", img: "/Zeeshan.jpg" },
+  { name: "Vibhavri", role: "AI Researcher", img: "/vibhavri.jpg" },
+  { name: "Shubham", role: "Backend Engineer", img: "/Shubham.jpg" },
+  { name: "Tejaswini", role: "Product Designer", img: "/tejaswini.jpg" },
 ];
 
 export default function HomePage({ setPage, user }) {
