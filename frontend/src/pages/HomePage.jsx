@@ -5,10 +5,10 @@ import GlassCard from "../components/GlassCard";
 const mqItems = ["Review Forensics","Behavioral Signals","Sentiment Mapping","BERT Neural Engine","NLP Detection","Authenticity Scoring","Pattern Recognition","Neural Transformer"];
 
 const TEAM = [
-  { name: "Member 1", role: "Frontend Lead", pos: "0 0" },
-  { name: "Member 2", role: "ML Engineer", pos: "100% 0" },
-  { name: "Member 3", role: "Backend Dev", pos: "0 100%" },
-  { name: "Member 4", role: "UI/UX Designer", pos: "100% 100%" },
+  { name: "Team Member 1", role: "Lead Developer", img: "/member1.jpg" },
+  { name: "Team Member 2", role: "AI Researcher", img: "/member2.jpg" },
+  { name: "Team Member 3", role: "Backend Engineer", img: "/member3.jpg" },
+  { name: "Team Member 4", role: "Product Designer", img: "/member4.jpg" },
 ];
 
 export default function HomePage({ setPage, user }) {
@@ -136,9 +136,9 @@ export default function HomePage({ setPage, user }) {
                 onMouseOut={e => { e.currentTarget.parentElement.style.transform = "translateY(0)"; e.currentTarget.parentElement.style.borderColor = G.border; }}
               >
                 {/* Avatar */}
-                <div style={{ width: "100%", aspectRatio: "1/1", background: `url('/team_avatars.png')`, backgroundSize: "200% 200%", backgroundPosition: member.pos, position: "relative", overflow: "hidden" }}>
+                <div style={{ width: "100%", aspectRatio: "1/1", background: `url(${member.img})`, backgroundSize: "cover", backgroundPosition: "center", backgroundColor: "rgba(255,255,255,0.03)", position: "relative", overflow: "hidden" }}>
                   {/* Overlay gradient */}
-                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(3,4,10,0.95) 0%, rgba(3,4,10,0.3) 40%, transparent 70%)" }} />
+                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(3,4,10,0.9) 0%, transparent 60%)" }} />
                   {/* Role tag */}
                   <div style={{ position: "absolute", top: 12, right: 12, fontFamily: "'IBM Plex Mono',monospace", fontSize: 8, letterSpacing: ".12em", textTransform: "uppercase", color: G.lime, background: "rgba(3,4,10,0.7)", backdropFilter: "blur(8px)", padding: "4px 10px", borderRadius: 3, border: "1px solid rgba(200,255,0,.15)" }}>
                     {member.role}
