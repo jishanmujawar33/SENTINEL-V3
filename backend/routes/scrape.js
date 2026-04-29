@@ -40,6 +40,9 @@ router.post("/", async (req, res) => {
     }
 
     const html = await response.text();
+    if (html.includes("To discuss automated access") || html.includes("api-services-support@amazon.com")) {
+      throw new Error("Amazon blocked the scan. High-security sites often block automated tools. Try pasting the review text directly.");
+    }
     const $ = cheerio.load(html);
 
     // Advanced extraction heuristic for Amazon and others

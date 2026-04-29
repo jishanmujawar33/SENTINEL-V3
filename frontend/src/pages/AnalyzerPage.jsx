@@ -33,8 +33,15 @@ export default function AnalyzerPage({ user, setPage }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url })
         });
+        const contentType = res.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          const text = await res.text();
+          console.error("Non-JSON response received:", text.slice(0, 200));
+          throw new Error("The server returned an invalid response (HTML instead of JSON). This usually means the backend is unreachable or the proxy is misconfigured.");
+        }
+
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to extract text from URL.");
+        if (!res.ok) throw new Error(data.error || `Server Error: ${res.status}`);
         analysisText = data.text;
         setScanProgress(15);
       } catch (err) {
