@@ -57,31 +57,60 @@ for (let i = TREES.length; i < 100; i++) {
 
 export function analyzeReview(text) {
   const features = extractFeatures(text);
-  const scores = [...BASE];
+  const ensembleScores = [...BASE];
 
   // Sum up decision stump outputs (Boosted Ensemble)
   TREES.forEach((t) => {
     const v = features[t.feature] ?? 0;
     const p = v <= t.threshold ? t.left : t.right;
-    for (let i = 0; i < 3; i++) scores[i] += p[i] * LR;
+    for (let i = 0; i < 3; i++) ensembleScores[i] += p[i] * LR;
   });
 
-  // Extract flags first to influence confidence if needed
+  // Extract flags first to influence confidence
   const { redFlags, positiveSignals } = computeFlags(features);
 
-  // HARD-DECISION OVERRIDES: The user wants "Yes or No" certainty.
-  // If there are 2+ red flags, we force a heavy tilt towards FAKE.
-  if (redFlags.length >= 2) {
-    scores[0] += 2.0; // Massive boost for FAKE
-    scores[2] -= 1.0; // Penalize GENUINE
+  // --- Hybrid Scoring: Combine Ensemble with NLP Signals ---
+  let rawFakeScore = ensembleScores[0] * 0.4;
+  rawFakeScore += features.exclamationDensity * 0.6;
+  rawFakeScore += features.capsRatio * 0.5;
+  rawFakeScore += features.superlativeCount * 0.7;
+  rawFakeScore += features.repetitionScore * 0.6;
+  rawFakeScore += features.emojiDensity * 0.5;
+  rawFakeScore += (1 - features.specificityScore) * 0.5;
+  rawFakeScore += (1 - features.temporalScore) * 0.3;
+  rawFakeScore += (1 - features.lexicalDiversity) * 0.5;
+
+  let rawGenuineScore = ensembleScores[2] * 0.4;
+  rawGenuineScore += features.specificityScore * 0.8;
+  rawGenuineScore += features.lexicalDiversity * 0.5;
+  rawGenuineScore += features.sentenceVariety * 0.5;
+  rawGenuineScore += features.hedgingLanguage * 0.6;
+  rawGenuineScore += features.temporalScore * 0.5;
+  rawGenuineScore += features.firstPersonPronouns * 0.4;
+
+  const polarityBalance = 1 - Math.abs(features.emotionalPolarity - 0.5) * 2;
+  rawGenuineScore += polarityBalance * 0.5;
+
+  // HARD-DECISION OVERRIDES
+  let scores = [rawFakeScore, 0.1, rawGenuineScore];
+
+  if (redFlags.length >= 3 && positiveSignals.length < 3) {
+    scores[0] += 3.0; 
+    scores[2] -= 1.5;
+  } else if (redFlags.length >= 3 && positiveSignals.length >= 3) {
+    scores[0] += 1.5; // Contested
+  } else if (redFlags.length >= 2 && positiveSignals.length < 2) {
+    scores[0] += 2.0; 
+    scores[2] -= 1.0;
   } else if (positiveSignals.length >= 3 && redFlags.length === 0) {
-    scores[2] += 2.0; // Massive boost for GENUINE
-    scores[0] -= 1.0; // Penalize FAKE
+    scores[2] += 2.0; 
+    scores[0] -= 1.0;
+  } else if (positiveSignals.length >= 3 && redFlags.length <= 2) {
+    scores[2] += 1.5; 
   }
 
-  // Softmax normalization with EXTREME Temperature Scaling (T=50)
-  // This ensures the model is almost always 95-100% sure of its top choice.
-  const T = 50;
+  // Softmax with Temperature Scaling
+  const T = 40;
   const mx = Math.max(...scores);
   const ex = scores.map((s) => Math.exp((s - mx) * T));
   const sm = ex.reduce((a, b) => a + b, 0);
@@ -91,10 +120,8 @@ export function analyzeReview(text) {
   const maxIdx = probs.indexOf(Math.max(...probs));
   const verdict = classes[maxIdx];
   
-  // Force extreme confidence if it's the clear winner
   let confidence = Math.round(probs[maxIdx] * 100);
   if (confidence > 80) confidence = Math.max(98, confidence);
-  if (confidence < 60) confidence = 100 - confidence; // Flip if it's ambiguous but leaning
 
   const signals = computeSignals(features);
   const summary = makeSummary(verdict, confidence, redFlags, positiveSignals, features);
