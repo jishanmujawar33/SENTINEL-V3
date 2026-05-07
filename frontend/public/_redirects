@@ -1,0 +1,4 @@
+# Redirect all /api calls to the backend server
+# Replace http://localhost:3001 with your actual deployed backend URL later
+/api/*  http://localhost:3001/api/:splat  200
+/*      /index.html  200

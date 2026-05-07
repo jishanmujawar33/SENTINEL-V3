@@ -14,31 +14,43 @@ export default function App() {
   // Check existing session on mount
   useEffect(() => {
     const token = localStorage.getItem("sentinel_token");
-    if (token) {
-      fetch("/api/auth/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => (res.ok ? res.json() : Promise.reject()))
-        .then((data) => setUser(data.user))
-        .catch(() => {
-          // Token expired or backend offline — check for demo user
-          try {
-            const payload = JSON.parse(atob(token.split(".")[1]));
-            if (payload.id === "demo-user") {
-              setUser({ id: "demo-user", email: "demo@sentinel.ai", name: "Demo User" });
-            } else {
-              localStorage.removeItem("sentinel_token");
-            }
-          } catch {
+    if (!token) return;
+
+    // Google OAuth user — restore from cached profile
+    const googleUser = localStorage.getItem("sentinel_google_user");
+    if (googleUser) {
+      try {
+        const parsed = JSON.parse(googleUser);
+        if (parsed?.provider === "google") { setUser(parsed); return; }
+      } catch { /* ignore */ }
+    }
+
+    // Backend JWT user
+    fetch("/api/auth/me", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data) => setUser(data.user))
+      .catch(() => {
+        try {
+          const payload = JSON.parse(atob(token.split(".")[1]));
+          if (payload.id === "demo-user") {
+            setUser({ id: "demo-user", email: "demo@sentinel.ai", name: "Demo User" });
+          } else {
             localStorage.removeItem("sentinel_token");
           }
-        });
-    }
+        } catch {
+          localStorage.removeItem("sentinel_token");
+        }
+      });
   }, []);
 
   const logout = () => {
     localStorage.removeItem("sentinel_token");
     localStorage.removeItem("sentinel_remember");
+    localStorage.removeItem("sentinel_google_user");
+    // Sign out from Google Identity Services if available
+    if (window.google?.accounts?.id) window.google.accounts.id.disableAutoSelect();
     setUser(null);
     setPage("home");
   };

@@ -1,8 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Logo, { G } from "../components/Logo";
 import GlassCard from "../components/GlassCard";
 
 const API = "/api/auth";
+
+// ──────────────────────────────────────────────────────────────
+// REPLACE with your actual Google OAuth Client ID from
+// https://console.cloud.google.com/ → APIs & Services → Credentials
+// ──────────────────────────────────────────────────────────────
+const GOOGLE_CLIENT_ID = "921008425465-adl2agf32qu6rn3ckj9m0nj7ussokh8s.apps.googleusercontent.com";
 
 /* Password strength calculator */
 function getStrength(pass) {
@@ -18,9 +24,19 @@ function getStrength(pass) {
   return { level: 3, label: "Strong", color: G.real };
 }
 
-/* Email validator */
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+/** Load Google Identity Services script once */
+function loadGoogleScript() {
+  if (document.getElementById("google-gsi-script")) return;
+  const script = document.createElement("script");
+  script.id = "google-gsi-script";
+  script.src = "https://accounts.google.com/gsi/client";
+  script.async = true;
+  script.defer = true;
+  document.head.appendChild(script);
 }
 
 export default function AuthPage({ setUser, setPage, onDemoLogin }) {
@@ -32,22 +48,75 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
   const [remember, setRemember] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [shakeEmail, setShakeEmail] = useState(false);
   const [shakePass, setShakePass] = useState(false);
+  const googleBtnRef = useRef(null);
 
-  // Clear errors on mode change
   useEffect(() => { setError(""); setSuccess(""); }, [mode]);
+
+  // Load Google Identity Services and render button
+  useEffect(() => {
+    loadGoogleScript();
+    const tryInit = () => {
+      if (!window.google || !googleBtnRef.current) return;
+      try {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleGoogleCredential,
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
+        window.google.accounts.id.renderButton(googleBtnRef.current, {
+          theme: "filled_black",
+          size: "large",
+          width: googleBtnRef.current.offsetWidth || 396,
+          text: "continue_with",
+          shape: "rectangular",
+        });
+      } catch { /* GSI not ready yet */ }
+    };
+    // Retry until GSI script loads
+    const interval = setInterval(() => {
+      if (window.google) { tryInit(); clearInterval(interval); }
+    }, 300);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleGoogleCredential = async (response) => {
+    if (!response?.credential) return;
+    setGoogleLoading(true);
+    setError("");
+    try {
+      // Decode the JWT to extract user info (no secret needed — it's a public JWT)
+      const payload = JSON.parse(atob(response.credential.split(".")[1]));
+      const googleUser = {
+        id: `google-${payload.sub}`,
+        name: payload.name || payload.email,
+        email: payload.email,
+        avatar: payload.picture,
+        provider: "google",
+      };
+      // Store a simple session token using the Google JWT (valid for ~1 hour)
+      localStorage.setItem("sentinel_token", response.credential);
+      localStorage.setItem("sentinel_google_user", JSON.stringify(googleUser));
+      setUser(googleUser);
+      setPage("analyzer");
+    } catch (err) {
+      setError("Google sign-in failed. Please try again.");
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const strength = getStrength(pass);
 
   const handleSubmit = async (e) => {
     e?.preventDefault();
-    setError("");
-    setSuccess("");
+    setError(""); setSuccess("");
 
-    // Validation
     if (mode === "forgot") {
       if (!email || !isValidEmail(email)) {
         setShakeEmail(true);
@@ -58,9 +127,7 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
       return;
     }
 
-    if (mode === "signup" && !name.trim()) {
-      return setError("Please enter your full name");
-    }
+    if (mode === "signup" && !name.trim()) return setError("Please enter your full name");
     if (!email || !isValidEmail(email)) {
       setShakeEmail(true);
       setTimeout(() => setShakeEmail(false), 500);
@@ -71,9 +138,7 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
       setTimeout(() => setShakePass(false), 500);
       return setError("Password must be at least 6 characters");
     }
-    if (mode === "signup" && !agreeTerms) {
-      return setError("Please agree to the Terms & Privacy Policy");
-    }
+    if (mode === "signup" && !agreeTerms) return setError("Please agree to the Terms & Privacy Policy");
 
     setLoading(true);
     try {
@@ -87,16 +152,9 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
       const data = await res.json();
+      if (!res.ok) { setError(data.error || "Authentication failed"); setLoading(false); return; }
 
-      if (!res.ok) {
-        setError(data.error || "Authentication failed");
-        setLoading(false);
-        return;
-      }
-
-      // Store token
       localStorage.setItem("sentinel_token", data.token);
       if (remember) localStorage.setItem("sentinel_remember", "true");
       setUser(data.user);
@@ -117,7 +175,6 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
       setUser(data.user);
       setPage("analyzer");
     } catch {
-      // Fallback: offline demo
       if (onDemoLogin) onDemoLogin();
     } finally {
       setLoading(false);
@@ -136,48 +193,31 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
     outline: "none",
     transition: "border .2s, box-shadow .2s",
     animation: shake ? "shakeX .5s ease" : "none",
+    boxSizing: "border-box",
   });
 
-  const titles = {
-    signin: "WELCOME BACK",
-    signup: "JOIN SENTINEL",
-    forgot: "RESET PASSWORD",
-  };
-  const subtitles = {
-    signin: "Sign in to access your scan history & dashboard.",
-    signup: "Create your free account to start detecting fake reviews.",
-    forgot: "Enter your email and we'll send reset instructions.",
-  };
+  const titles    = { signin: "WELCOME BACK",   signup: "JOIN SENTINEL",       forgot: "RESET PASSWORD" };
+  const subtitles = { signin: "Sign in to access your scan history & dashboard.", signup: "Create your free account to start detecting fake reviews.", forgot: "Enter your email and we'll send reset instructions." };
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "120px 24px 60px", position: "relative" }}>
-      {/* bg text */}
       <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Bebas Neue',sans-serif", fontSize: "clamp(80px,16vw,180px)", color: "rgba(200,255,0,.018)", pointerEvents: "none", userSelect: "none", zIndex: 0 }}>TRUTH</div>
 
       <div className="anim-upIn" style={{ width: "100%", maxWidth: 460, zIndex: 1 }}>
         {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 36 }}>
           <Logo size={20} />
-          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 44, lineHeight: 1, marginTop: 24, marginBottom: 8 }}>
-            {titles[mode]}
-          </div>
+          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 44, lineHeight: 1, marginTop: 24, marginBottom: 8 }}>{titles[mode]}</div>
           <p style={{ fontSize: 13, color: G.dim, fontWeight: 300 }}>{subtitles[mode]}</p>
         </div>
 
         <GlassCard style={{ padding: "36px 32px" }}>
-          {/* Tab Switcher (signin/signup only) */}
+          {/* Tab Switcher */}
           {mode !== "forgot" && (
-            <div style={{ display: "flex", marginBottom: 28, background: "rgba(255,255,255,.03)", borderRadius: 8, padding: 3, position: "relative" }}>
+            <div style={{ display: "flex", marginBottom: 28, background: "rgba(255,255,255,.03)", borderRadius: 8, padding: 3 }}>
               {["signin", "signup"].map((m) => (
                 <button key={m} onClick={() => setMode(m)}
-                  style={{
-                    flex: 1, padding: "11px 0",
-                    fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, letterSpacing: ".1em", textTransform: "uppercase",
-                    background: mode === m ? "rgba(200,255,0,.12)" : "transparent",
-                    color: mode === m ? G.lime : G.dim,
-                    border: mode === m ? "1px solid rgba(200,255,0,.2)" : "1px solid transparent",
-                    borderRadius: 6, cursor: "pointer", transition: "all .25s",
-                  }}>
+                  style={{ flex: 1, padding: "11px 0", fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, letterSpacing: ".1em", textTransform: "uppercase", background: mode === m ? "rgba(200,255,0,.12)" : "transparent", color: mode === m ? G.lime : G.dim, border: mode === m ? "1px solid rgba(200,255,0,.2)" : "1px solid transparent", borderRadius: 6, cursor: "pointer", transition: "all .25s" }}>
                   {m === "signin" ? "Sign In" : "Sign Up"}
                 </button>
               ))}
@@ -205,13 +245,14 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
                 onBlur={e => e.target.style.borderColor = G.border} />
             </div>
 
-            {/* Password (not on forgot) */}
+            {/* Password */}
             {mode !== "forgot" && (
               <div>
                 <label style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, letterSpacing: ".15em", textTransform: "uppercase", color: "rgba(200,255,0,.4)", marginBottom: 6, display: "block" }}>Password</label>
                 <div style={{ position: "relative" }}>
                   <input value={pass} onChange={e => setPass(e.target.value)}
-                    type={showPass ? "text" : "password"} placeholder="Min 6 characters" autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                    type={showPass ? "text" : "password"} placeholder="Min 6 characters"
+                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
                     style={{ ...inputStyle(shakePass), paddingRight: 44 }}
                     onFocus={e => e.target.style.borderColor = "rgba(200,255,0,.35)"}
                     onBlur={e => e.target.style.borderColor = G.border} />
@@ -220,14 +261,10 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
                     {showPass ? "🙈" : "👁"}
                   </button>
                 </div>
-
-                {/* Strength meter (signup only) */}
                 {mode === "signup" && pass && (
                   <div className="anim-fadeIn" style={{ marginTop: 8 }}>
                     <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
-                      {[1,2,3].map(l => (
-                        <div key={l} style={{ flex: 1, height: 3, borderRadius: 2, background: strength.level >= l ? strength.color : "rgba(255,255,255,.08)", transition: "background .3s" }} />
-                      ))}
+                      {[1,2,3].map(l => <div key={l} style={{ flex: 1, height: 3, borderRadius: 2, background: strength.level >= l ? strength.color : "rgba(255,255,255,.08)", transition: "background .3s" }} />)}
                     </div>
                     <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, letterSpacing: ".1em", color: strength.color }}>{strength.label}</div>
                   </div>
@@ -235,7 +272,7 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
               </div>
             )}
 
-            {/* Remember me / Forgot password (signin only) */}
+            {/* Remember / Forgot */}
             {mode === "signin" && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
@@ -265,7 +302,7 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
               </label>
             )}
 
-            {/* Error / Success messages */}
+            {/* Error / Success */}
             {error && (
               <div className="anim-slideDown" style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, color: G.fake, letterSpacing: ".04em", padding: "10px 14px", background: "rgba(255,45,85,.08)", border: "1px solid rgba(255,45,85,.2)", borderRadius: 6, display: "flex", alignItems: "center", gap: 8 }}>
                 <span>⚠</span> {error}
@@ -279,15 +316,7 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
 
             {/* Submit button */}
             <button type="submit" disabled={loading}
-              style={{
-                width: "100%", padding: "15px",
-                background: loading ? "rgba(200,255,0,.5)" : G.lime,
-                color: G.void,
-                fontFamily: "'Unbounded',sans-serif", fontWeight: 700, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase",
-                border: "none", borderRadius: 8, cursor: loading ? "default" : "pointer",
-                marginTop: 4, transition: "all .2s",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-              }}
+              style={{ width: "100%", padding: "15px", background: loading ? "rgba(200,255,0,.5)" : G.lime, color: G.void, fontFamily: "'Unbounded',sans-serif", fontWeight: 700, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase", border: "none", borderRadius: 8, cursor: loading ? "default" : "pointer", marginTop: 4, transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}
               onMouseOver={e => { if (!loading) e.currentTarget.style.background = "#d4ff1e"; }}
               onMouseOut={e => { if (!loading) e.currentTarget.style.background = G.lime; }}>
               {loading && <div style={{ width: 14, height: 14, border: `2px solid ${G.void}`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin .7s linear infinite" }} />}
@@ -295,14 +324,41 @@ export default function AuthPage({ setUser, setPage, onDemoLogin }) {
             </button>
           </form>
 
-          {/* Divider */}
+          {/* Divider + Google + Demo */}
           {mode !== "forgot" && (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "24px 0" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "24px 0 16px" }}>
                 <div style={{ flex: 1, height: 1, background: G.border }} />
                 <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, letterSpacing: ".18em", color: "rgba(240,240,240,.2)", textTransform: "uppercase" }}>or</span>
                 <div style={{ flex: 1, height: 1, background: G.border }} />
               </div>
+
+              {/* ── Google Sign-In Button ── */}
+              {GOOGLE_CLIENT_ID !== "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com" ? (
+                <div style={{ marginBottom: 12 }}>
+                  {googleLoading ? (
+                    <div style={{ width: "100%", padding: "13px", background: "rgba(255,255,255,.04)", border: `1px solid ${G.border}`, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: G.dim, fontFamily: "'IBM Plex Mono',monospace", fontSize: 11 }}>
+                      <div style={{ width: 14, height: 14, border: "2px solid rgba(200,255,0,.4)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin .7s linear infinite" }} />
+                      Signing in with Google...
+                    </div>
+                  ) : (
+                    <div ref={googleBtnRef} style={{ width: "100%", minHeight: 44, borderRadius: 8, overflow: "hidden" }} />
+                  )}
+                </div>
+              ) : (
+                /* Placeholder shown when Client ID not yet configured */
+                <button disabled
+                  title="Set your GOOGLE_CLIENT_ID in AuthPage.jsx to enable Google Sign-In"
+                  style={{ width: "100%", padding: "13px", marginBottom: 12, background: "rgba(255,255,255,.03)", color: "rgba(240,240,240,.3)", fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", border: `1px solid ${G.border}`, borderRadius: 8, cursor: "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="rgba(255,255,255,.2)"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="rgba(255,255,255,.2)"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="rgba(255,255,255,.2)"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="rgba(255,255,255,.2)"/>
+                  </svg>
+                  Continue with Google (Configure Client ID)
+                </button>
+              )}
 
               {/* Demo Login */}
               <button onClick={handleDemoLogin} disabled={loading}
