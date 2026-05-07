@@ -1,4 +1,3 @@
-# Redirect all /api calls to the backend server
-# Replace http://localhost:3001 with your actual deployed backend URL later
-/api/*  http://localhost:3001/api/:splat  200
+# Redirect all /api calls to the live Render backend
+/api/*  https://sentinel-v3-e6zd.onrender.com/api/:splat  200
 /*      /index.html  200
